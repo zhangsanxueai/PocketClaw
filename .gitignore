@@ -1,0 +1,22 @@
+# 敏感配置文件
+.env
+
+# 大型二进制文件
+*.tar
+*.exe
+*.msi
+
+# Docker 镜像文件
+openclaw-image.tar
+Docker Desktop Installer.exe
+wsl_update_x64.msi
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 临时文件
+*.tmp
+*.log
+新建 文本文档.txt
