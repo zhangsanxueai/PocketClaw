@@ -4,6 +4,9 @@ setlocal enabledelayedexpansion
 
 :: ============================================================
 ::  OpenClaw 启动器 (Windows) - 优化版
+::  项目地址：   https://github.com/zhangsanxueai/PocketClaw  
+::  抖音： 张三学 Ai 
+::  小红书： 张三学 Ai  Raffy赛博版
 ::  用法: start.bat [--reload | --stop | --logs | --status]
 :: ============================================================
 
@@ -12,7 +15,7 @@ set "IMAGE_NAME=ghcr.io/openclaw/openclaw:latest"
 set "TAR_FILE=%SCRIPT_DIR%openclaw-image.tar"
 set "COMPOSE_FILE=%SCRIPT_DIR%docker-compose.yml"
 set "ENV_FILE=%SCRIPT_DIR%.env"
-set "APP_URL=http://localhost:3000"
+set "APP_URL=http://localhost:18789"
 set "MIN_DISK_MB=2048"
 
 :: ---------- 子命令分发 ----------
@@ -28,7 +31,7 @@ echo ========================================
 
 :: ========== 第 1 步：检查 Docker 安装 ==========
 echo.
-echo [1/6] 正在检查 Docker 安装状态...
+echo [1/7] 正在检查 Docker 安装状态...
 where docker >nul 2>&1
 if %errorlevel% neq 0 (
     echo [错误] 未找到 Docker，请先安装 Docker Desktop。
@@ -40,7 +43,7 @@ echo [成功] 已找到 Docker %DOCKER_VER%
 
 :: ========== 第 2 步：检查 Docker 运行状态 ==========
 echo.
-echo [2/6] 正在检查 Docker 运行状态...
+echo [2/7] 正在检查 Docker 运行状态...
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
     echo [警告] Docker 未运行，正在尝试启动 Docker Desktop...
@@ -63,7 +66,7 @@ if %errorlevel% neq 0 (
 
 :: ========== 第 3 步：检查磁盘空间 ==========
 echo.
-echo [3/6] 正在检查磁盘空间...
+echo [3/7] 正在检查磁盘空间...
 for /f "tokens=3" %%a in ('dir /-c "%SCRIPT_DIR%." 2^>nul ^| findstr /c:"可用字节"') do (
     set /a "FREE_MB=%%a / 1048576" 2>nul
 )
@@ -79,7 +82,7 @@ if defined FREE_MB (
 
 :: ========== 第 4 步：加载镜像 ==========
 echo.
-echo [4/6] 正在检查 Docker 镜像...
+echo [4/7] 正在检查 Docker 镜像...
 docker image inspect %IMAGE_NAME% >nul 2>&1
 set "IMAGE_EXISTS=%errorlevel%"
 
@@ -163,10 +166,10 @@ if %errorlevel%==0 (
 )
 del "%LOAD_LOG%" >nul 2>&1
 
-:: ========== 第 5 步：检查 .env 配置 ==========
+:: ========== 第 5 步：检查 .env 配置文件 ==========
 :check_env
 echo.
-echo [5/6] 正在检查 .env 配置文件...
+echo [5/7] 正在检查 .env 配置文件...
 
 if exist "%ENV_FILE%" goto :check_env_content
 
@@ -198,17 +201,153 @@ for %%A in ("%ENV_FILE%") do (
 :: 检查是否包含未填写的占位符
 findstr /r /c:"YOUR_.*_HERE" /c:"sk-xxx" /c:"=<" /c:"=$" "%ENV_FILE%" >nul 2>&1
 if %errorlevel%==0 (
-    echo [警告] .env 中似乎有未填写的配置项，请检查并补充。
-    echo        按任意键打开编辑，或关闭窗口取消...
-    pause >nul
-    notepad "%ENV_FILE%"
-    goto :end
+    echo [警告] .env 中似乎有未填写的配置项，（小白可无视）。
 )
 echo [成功] 已找到 .env 配置文件。
 
-:: ========== 第 6 步：启动服务 ==========
+:: ========== 第 6 步：初始化检查 ==========
 echo.
-echo [6/6] 正在启动 OpenClaw...
+echo [6/7] 正在检查初始化状态...
+
+cd /d "%SCRIPT_DIR%"
+
+:: 读取 .env 中已有的路径配置（遍历全文件取最后出现的值）
+set "CFG_DIR="
+set "WS_DIR="
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if "%%a"=="OPENCLAW_CONFIG_DIR"  if not "%%b"=="" set "CFG_DIR=%%b"
+    if "%%a"=="OPENCLAW_WORKSPACE_DIR" if not "%%b"=="" set "WS_DIR=%%b"
+)
+
+:: 未配置则使用脚本目录下的 data 子目录作为默认路径
+if "!CFG_DIR!"=="" (
+    set "CFG_DIR=%SCRIPT_DIR%data\config"
+    set "WS_DIR=%SCRIPT_DIR%data\workspace"
+) else (
+    :: .env 中可能是正斜杠，统一转为 Windows 反斜杠供本地操作使用
+    set "CFG_DIR=!CFG_DIR:/=\!"
+    if "!WS_DIR!"=="" set "WS_DIR=!CFG_DIR!\workspace"
+    set "WS_DIR=!WS_DIR:/=\!"
+)
+
+:: 以 openclaw.json 是否存在判断是否已完成初始化
+if exist "!CFG_DIR!\openclaw.json" (
+    echo [成功] 已检测到初始化配置，跳过初始化步骤。
+    goto :start_services
+)
+
+echo [信息] 首次运行，开始执行初始化（共 6 个子步骤）...
+
+:: --------------------------------------------------
+:: 6.1 创建数据目录结构
+:: --------------------------------------------------
+echo.
+echo [6.1] 正在创建数据目录结构...
+mkdir "!CFG_DIR!" >nul 2>&1
+mkdir "!WS_DIR!" >nul 2>&1
+mkdir "!CFG_DIR!\identity" >nul 2>&1
+mkdir "!CFG_DIR!\agents\main\agent" >nul 2>&1
+mkdir "!CFG_DIR!\agents\main\sessions" >nul 2>&1
+echo [成功] 数据目录创建完成。
+
+:: --------------------------------------------------
+:: 6.2 生成随机 Gateway Token
+:: --------------------------------------------------
+echo.
+echo [6.2] 正在生成 Gateway Token...
+set "NEW_TOKEN="
+for /f "delims=" %%t in ('powershell -NoProfile -Command "$b=New-Object byte[] 32;[Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($b);-join($b|ForEach-Object{$_.ToString('x2')})" 2^>nul') do set "NEW_TOKEN=%%t"
+if "!NEW_TOKEN!"=="" (
+    echo [警告] PowerShell 生成 Token 失败，使用备用方案...
+    set "NEW_TOKEN=oc%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%"
+)
+echo [成功] Gateway Token 已生成: !NEW_TOKEN!
+
+:: --------------------------------------------------
+:: 6.3 将路径和必要变量追加写入 .env
+::     docker compose 取同名变量最后出现的值，追加即可覆盖旧值
+:: --------------------------------------------------
+echo.
+echo [6.3] 正在更新 .env 配置...
+echo.>> "%ENV_FILE%"
+echo OPENCLAW_CONFIG_DIR=!CFG_DIR!>> "%ENV_FILE%"
+echo OPENCLAW_WORKSPACE_DIR=!WS_DIR!>> "%ENV_FILE%"
+echo OPENCLAW_GATEWAY_PORT=18789>> "%ENV_FILE%"
+echo OPENCLAW_BRIDGE_PORT=18790>> "%ENV_FILE%"
+echo OPENCLAW_GATEWAY_BIND=lan>> "%ENV_FILE%"
+echo OPENCLAW_GATEWAY_TOKEN=!NEW_TOKEN!>> "%ENV_FILE%"
+echo OPENCLAW_IMAGE=%IMAGE_NAME%>> "%ENV_FILE%"
+echo OPENCLAW_EXTRA_MOUNTS=>> "%ENV_FILE%"
+echo OPENCLAW_HOME_VOLUME=>> "%ENV_FILE%"
+echo OPENCLAW_DOCKER_APT_PACKAGES=>> "%ENV_FILE%"
+echo OPENCLAW_EXTENSIONS=>> "%ENV_FILE%"
+echo OPENCLAW_SANDBOX=>> "%ENV_FILE%"
+echo OPENCLAW_DOCKER_SOCKET=>> "%ENV_FILE%"
+echo DOCKER_GID=>> "%ENV_FILE%"
+echo OPENCLAW_INSTALL_DOCKER_CLI=>> "%ENV_FILE%"
+echo OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=>> "%ENV_FILE%"
+echo OPENCLAW_TZ=>> "%ENV_FILE%"
+echo [成功] .env 配置更新完成。
+
+:: --------------------------------------------------
+:: 6.4 修复数据目录权限
+::     容器以 node 用户(uid 1000)运行，宿主机创建的目录需要 chown
+:: --------------------------------------------------
+echo.
+echo [6.4] 正在修复数据目录权限...
+docker compose -f "%COMPOSE_FILE%" run --rm --user root --entrypoint sh openclaw-cli -c "find /home/node/.openclaw -xdev -exec chown node:node {} + ; [ -d /home/node/.openclaw/workspace/.openclaw ] && chown -R node:node /home/node/.openclaw/workspace/.openclaw || true"
+if %errorlevel% neq 0 (
+    echo [警告] 权限修复执行异常，继续尝试初始化...
+) else (
+    echo [成功] 数据目录权限修复完成。
+)
+
+:: --------------------------------------------------
+:: 6.5 运行初始化向导
+::     向导会询问模型提供商、频道等配置，按提示操作即可
+::     关键选项：Gateway 模式选 local，安装守护进程选 No
+:: --------------------------------------------------
+echo.
+echo [6.5] 正在启动初始化向导...
+echo [提示] 向导关键选项：
+echo        - Gateway 模式请选择: local
+echo        - 安装守护进程请选择: No（由 Docker Compose 管理）
+echo.
+docker compose -f "%COMPOSE_FILE%" run --rm openclaw-cli onboard --mode local --no-install-daemon
+if %errorlevel% neq 0 (
+    echo [错误] 初始化向导执行失败，请查看上方报错信息。
+    goto :fail
+)
+echo [成功] 初始化向导完成。
+
+:: --------------------------------------------------
+:: 6.6 固定 gateway 配置
+::     确保 Docker 环境下始终使用本地模式和 lan 绑定
+:: --------------------------------------------------
+echo.
+echo [6.6] 正在固定 gateway 配置...
+docker compose -f "%COMPOSE_FILE%" run --rm openclaw-cli config set gateway.mode local
+if %errorlevel% neq 0 (
+    echo [警告] 设置 gateway.mode 失败，继续执行...
+)
+docker compose -f "%COMPOSE_FILE%" run --rm openclaw-cli config set gateway.bind lan
+if %errorlevel% neq 0 (
+    echo [警告] 设置 gateway.bind 失败，继续执行...
+)
+echo [成功] gateway 配置固定完成。
+
+echo.
+echo ========================================
+echo   [成功] 初始化完成！
+echo   Token: !NEW_TOKEN!
+echo   配置目录: !CFG_DIR!
+echo   工作目录: !WS_DIR!
+echo ========================================
+
+:: ========== 第 7 步：启动服务 ==========
+:start_services
+echo.
+echo [7/7] 正在启动 OpenClaw...
 cd /d "%SCRIPT_DIR%"
 
 :: 先停止旧容器，避免冲突
@@ -219,7 +358,7 @@ if %errorlevel% neq 0 (
     echo.
     echo [错误] 启动失败，请查看上方报错信息。
     echo        常见原因:
-    echo          - 端口 3000 被占用（用 netstat -ano ^| findstr :3000 查看）
+    echo          - 端口 18789 被占用（用 netstat -ano ^| findstr :18789 查看）
     echo          - docker-compose.yml 文件有误
     echo          - .env 配置不正确
     goto :fail
