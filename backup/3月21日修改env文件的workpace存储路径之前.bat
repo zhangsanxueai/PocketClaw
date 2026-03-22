@@ -358,42 +358,22 @@ echo.
 echo [7/7] 正在启动 OpenClaw...
 cd /d "%SCRIPT_DIR%"
 
-:: ---- 确保每次启动前 .env 中目录配置指向脚本所在路径下的 data 目录 ----
-set "EXPECTED_CFG=%SCRIPT_DIR%data\config"
-set "EXPECTED_WS=%SCRIPT_DIR%data\workspace"
-set "ENV_FOUND_CFG="
-set "ENV_FOUND_WS="
-set "ENV_TMP2=%ENV_FILE%.tmp2"
-if exist "!ENV_TMP2!" del "!ENV_TMP2!"
-
-(for /f "usebackq delims=" %%L in ("%ENV_FILE%") do (
-    set "LINE=%%L"
-    set "IS_CFG="
-    set "IS_WS="
-    for /f "tokens=1 delims==" %%A in ("%%L") do (
-        if "%%A"=="OPENCLAW_CONFIG_DIR"    set "IS_CFG=1"
-        if "%%A"=="OPENCLAW_WORKSPACE_DIR" set "IS_WS=1"
-    )
-    if defined IS_CFG (
-        echo OPENCLAW_CONFIG_DIR=!EXPECTED_CFG!
-        set "ENV_FOUND_CFG=1"
-    ) else if defined IS_WS (
-        echo OPENCLAW_WORKSPACE_DIR=!EXPECTED_WS!
-        set "ENV_FOUND_WS=1"
-    ) else (
-        echo(!LINE!
-    )
-)) > "!ENV_TMP2!"
-
-if not defined ENV_FOUND_CFG (
-    >> "!ENV_TMP2!" echo OPENCLAW_CONFIG_DIR=!EXPECTED_CFG!
+:: ---- 确保每次启动前 .env 含有目录配置，防止丢失 ----
+set "ENV_HAS_CFG="
+set "ENV_HAS_WS="
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    if "%%a"=="OPENCLAW_CONFIG_DIR"    if not "%%b"=="" set "ENV_HAS_CFG=1"
+    if "%%a"=="OPENCLAW_WORKSPACE_DIR" if not "%%b"=="" set "ENV_HAS_WS=1"
 )
-if not defined ENV_FOUND_WS (
-    >> "!ENV_TMP2!" echo OPENCLAW_WORKSPACE_DIR=!EXPECTED_WS!
+if not defined ENV_HAS_CFG (
+    >> "%ENV_FILE%" echo OPENCLAW_CONFIG_DIR=%SCRIPT_DIR%data\config
+    echo [信息] 自动补写 OPENCLAW_CONFIG_DIR 到 .env
 )
-move /y "!ENV_TMP2!" "%ENV_FILE%" >nul
-echo [信息] 已刷新 .env 中 OPENCLAW_CONFIG_DIR 和 OPENCLAW_WORKSPACE_DIR 为脚本所在路径。
-:: ---- 刷新结束 ----
+if not defined ENV_HAS_WS (
+    >> "%ENV_FILE%" echo OPENCLAW_WORKSPACE_DIR=%SCRIPT_DIR%data\workspace
+    echo [信息] 自动补写 OPENCLAW_WORKSPACE_DIR 到 .env
+)
+:: ---- 补写结束 ----
 
 
 set "ENV_CUR_IMAGE="
